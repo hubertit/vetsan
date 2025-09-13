@@ -1,17 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'package:dio/dio.dart';
 import 'dart:async';
 
-import '../../../../core/config/app_config.dart';
+import '../../../../core/services/auth_service.dart';
+import '../../../../core/services/secure_storage_service.dart';
 import '../../../../shared/models/user.dart';
+import '../../../../shared/models/registration_request.dart';
 
 final authProvider = StateNotifierProvider<AuthNotifier, AsyncValue<User?>>((ref) {
   return AuthNotifier();
 });
 
 class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
+  final AuthService _authService = AuthService();
+  
   AuthNotifier() : super(const AsyncValue.loading()) {
     _init();
     _startTokenVerificationTimer();
@@ -37,17 +38,32 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
 
   Future<void> _init() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userJson = prefs.getString(AppConfig.userFullDataKey);
-      final isLoggedIn = prefs.getBool(AppConfig.isLoggedInKey) ?? false;
+      final isLoggedIn = SecureStorageService.getLoginState();
+      final userData = SecureStorageService.getUserData();
       
-      if (userJson != null && isLoggedIn) {
-        final userData = json.decode(userJson);
+      if (userData != null && isLoggedIn) {
         final user = User.fromJson(userData);
         
         // Only load the user if they are truly logged in (not a guest)
         if (!user.id.startsWith('guest_')) {
+                  // Try to get fresh profile data from API to ensure we have the latest role and account info
+        try {
+          final profileResponse = await _authService.getProfile();
+                                // print('🔍 DEBUG: Profile API Response: $profileResponse');
+          if (profileResponse['data'] != null && profileResponse['data']['user'] != null) {
+            final updatedUser = User.fromJson(profileResponse['data']['user']);
+                      // print('🔍 DEBUG: Updated User Role: ${updatedUser.role}');
+          // print('🔍 DEBUG: Updated User AccountCode: ${updatedUser.accountCode}');
+            state = AsyncValue.data(updatedUser);
+          } else {
+            // print('🔍 DEBUG: No profile data, using cached user');
+            state = AsyncValue.data(user);
+          }
+        } catch (e) {
+          // If API call fails, use cached data
+          // print('🔍 DEBUG: Profile API failed, using cached user: $e');
           state = AsyncValue.data(user);
+        }
         } else {
           state = const AsyncValue.data(null);
         }
@@ -60,77 +76,87 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   }
 
   Future<void> signInWithEmailAndPassword(String emailOrPhone, String password) async {
-    // Accept any credentials and return a dummy user
-    await Future.delayed(const Duration(milliseconds: 500));
-    state = AsyncValue.data(User(
-      id: '1',
-      name: 'Demo User',
-      email: emailOrPhone.contains('@') ? emailOrPhone : 'demo@example.com',
-      password: '',
-      role: 'user',
-      createdAt: DateTime.now(),
-      lastLoginAt: DateTime.now(),
-      isActive: true,
-      about: '',
-      address: '',
-      profilePicture: '',
-      profileImg: '',
-      profileCover: '',
-      coverImg: '',
-      phoneNumber: emailOrPhone.contains('@') ? '' : emailOrPhone,
-    ));
+    try {
+      state = const AsyncValue.loading();
+      
+      final response = await _authService.login(emailOrPhone, password);
+      
+      // Create user from API response
+      final userData = response['data']['user'];
+      final accountData = response['data']['account'];
+      
+                            // Debug: Print the actual API response
+                      // print('🔍 DEBUG: Login API Response:');
+                      // print('🔍 DEBUG: userData: $userData');
+                      // print('🔍 DEBUG: accountData: $accountData');
+                      // print('🔍 DEBUG: accountData[type]: ${accountData['type']}');
+                      // print('🔍 DEBUG: accountData[code]: ${accountData['code']}');
+      
+      // Create user from login response data, which already contains complete profile info
+      final userDataWithRole = Map<String, dynamic>.from(userData);
+      userDataWithRole['role'] = accountData['type']?.toString() ?? 'owner';
+      userDataWithRole['accountCode'] = accountData['code']?.toString() ?? '';
+      userDataWithRole['accountName'] = accountData['name']?.toString() ?? '';
+      userDataWithRole['accountType'] = accountData['type']?.toString() ?? 'owner'; // Add account type
+      
+      final user = User.fromJson(userDataWithRole);
+      
+      // User data and token are already saved by AuthService
+      
+      // Login response already contains complete profile data, so we can use it directly
+      state = AsyncValue.data(user);
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
+      rethrow;
+    }
   }
 
   Future<void> signUpWithEmailAndPassword(
     String name,
-    String email,
+    String accountName,
+    String? email,
     String phoneNumber,
     String password,
     String role,
+    String accountType, // New parameter
+    String? nid,
   ) async {
     try {
       state = const AsyncValue.loading();
-      final dio = AppConfig.dioInstance();
-      final payload = {
-        'name': name,
-        'email': email,
-        'phone': phoneNumber,
-        'password': password,
-        'role': role,
-      };
-      final response = await dio.post(
-        '${AppConfig.authEndpoint}/register',
-        data: payload,
+      
+      // Create registration request (permissions will be set by API)
+      final registrationRequest = RegistrationRequest(
+        name: name,
+        accountName: accountName,
+        email: email,
+        phone: phoneNumber,
+        password: password,
+        nid: nid, // Optional field, can be null
+        role: role,
+        accountType: accountType, // New field
+        permissions: {}, // API will set default permissions
+        isAgentCandidate: false, // Default to false since we removed the checkbox
       );
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        // Registration successful, do not log in automatically
+      
+      await _authService.register(registrationRequest);
+      
+      // Registration successful, do not log in automatically
       state = const AsyncValue.data(null);
-      } else {
-        throw Exception(response.data['message'] ?? 'Registration failed');
-      }
-    } on DioException catch (e) {
-      final errorMsg = e.response?.data['message'] ?? e.message ?? 'Registration failed';
-      state = AsyncValue.error(errorMsg, StackTrace.current);
-      rethrow;
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+      
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
       rethrow;
     }
   }
 
   Future<void> signOut() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(AppConfig.isLoggedInKey, false);
-      // Don't remove user data, just mark as logged out
+      await _authService.logout();
       state = const AsyncValue.data(null);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (e) {
+      // Even if logout fails, clear local state
+      state = const AsyncValue.data(null);
     }
-  }
-
-  Future<void> resetPassword(String email) async {
-    // No-op for demo
   }
 
   Future<String?> getUserRole() async {
@@ -138,48 +164,20 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
     return user?.role;
   }
 
-  Future<void> sendResetCode(String email) async {
-    // Simulate sending a code
-    await Future.delayed(const Duration(seconds: 1));
-  }
-
-  Future<void> requestPasswordReset(String email) async {
+  Future<Map<String, dynamic>> requestPasswordReset({String? phone, String? email}) async {
     try {
-      final dio = AppConfig.dioInstance();
-      final response = await dio.post(
-        '${AppConfig.authEndpoint}/request_reset',
-        data: {'email': email},
-      );
-      if (response.statusCode != 200) {
-        throw Exception(response.data['message'] ?? 'Failed to request password reset');
-      }
-    } on DioException catch (e) {
-      final errorMsg = e.response?.data['message'] ?? e.message ?? 'Failed to request password reset';
-      throw Exception(errorMsg);
+      final response = await _authService.requestPasswordReset(phone: phone, email: email);
+      return response;
     } catch (e) {
-      throw Exception(e.toString());
+      rethrow;
     }
   }
 
-  Future<void> resetPasswordWithCode(String email, String code, String newPassword) async {
+  Future<void> resetPasswordWithCode(int userId, String code, String newPassword) async {
     try {
-      final dio = AppConfig.dioInstance();
-      final response = await dio.post(
-        '${AppConfig.authEndpoint}/reset_password',
-        data: {
-          'email': email,
-          'reset_code': code,
-          'new_password': newPassword,
-        },
-      );
-      if (response.statusCode != 200) {
-        throw Exception(response.data['message'] ?? 'Failed to reset password');
-      }
-    } on DioException catch (e) {
-      final errorMsg = e.response?.data['message'] ?? e.message ?? 'Failed to reset password';
-      throw Exception(errorMsg);
+      await _authService.resetPasswordWithCode(userId, code, newPassword);
     } catch (e) {
-      throw Exception(e.toString());
+      rethrow;
     }
   }
 
@@ -194,78 +192,138 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
     String? address,
     String? profileImg,
     String? coverImg,
+    // KYC Fields
+    String? province,
+    String? district,
+    String? sector,
+    String? cell,
+    String? village,
+    String? idNumber,
   }) async {
     try {
+      print('🔧 AuthProvider: Starting updateUserProfile...');
+      print('🔧 AuthProvider: Parameters - name: $name, email: $email, phone: $phoneNumber, address: $address');
+      
       final currentUser = state.value;
-      if (currentUser == null) throw Exception('No user logged in');
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(AppConfig.authTokenKey);
-      if (token == null || token.isEmpty) throw Exception('No auth token');
-
-      final dio = AppConfig.dioInstance();
-      final formData = FormData();
-      formData.fields.add(MapEntry('token', token));
-      if (name != null && name.isNotEmpty) formData.fields.add(MapEntry('name', name));
-      if (about != null && about.isNotEmpty) formData.fields.add(MapEntry('about', about));
-      if (address != null && address.isNotEmpty) formData.fields.add(MapEntry('address', address));
-      if (phoneNumber != null && phoneNumber.isNotEmpty) formData.fields.add(MapEntry('phone', phoneNumber));
-      // Attach profile image file if it's a local file path
-      if (profileImg != null && profileImg.isNotEmpty && !profileImg.startsWith('http')) {
-        formData.files.add(MapEntry('profile_img', await MultipartFile.fromFile(profileImg, filename: profileImg.split('/').last)));
+      if (currentUser == null) {
+        print('🔧 AuthProvider: No user logged in');
+        throw Exception('No user logged in');
       }
-      // Attach cover image file if it's a local file path
-      if (coverImg != null && coverImg.isNotEmpty && !coverImg.startsWith('http')) {
-        formData.files.add(MapEntry('cover_img', await MultipartFile.fromFile(coverImg, filename: coverImg.split('/').last)));
-      }
+      print('🔧 AuthProvider: Current user: ${currentUser.name}');
 
-      final response = await dio.post(AppConfig.profileUpdateEndpoint, data: formData);
-      if (response.statusCode == 200 && response.data['status'] == 'success') {
-        // Update local user data
-        final updatedUser = currentUser.copyWith(
-          name: name ?? currentUser.name,
-          about: about ?? currentUser.about,
-          address: address ?? currentUser.address,
-          phoneNumber: phoneNumber ?? currentUser.phoneNumber,
-          profileImg: profileImg ?? currentUser.profileImg,
-          coverImg: coverImg ?? currentUser.coverImg,
-        );
-        await prefs.setString(AppConfig.userFullDataKey, json.encode(updatedUser.toJson()));
-        state = AsyncValue.data(updatedUser);
+      final profileData = <String, dynamic>{};
+      if (name != null && name.isNotEmpty) profileData['name'] = name;
+      if (about != null && about.isNotEmpty) profileData['about'] = about;
+      if (address != null && address.isNotEmpty) profileData['address'] = address;
+      if (phoneNumber != null && phoneNumber.isNotEmpty) profileData['phone'] = phoneNumber;
+      if (profileImg != null && profileImg.isNotEmpty) profileData['profile_img'] = profileImg;
+      if (coverImg != null && coverImg.isNotEmpty) profileData['cover_img'] = coverImg;
+      if (email != null && email.isNotEmpty) profileData['email'] = email;
+      
+      // KYC Fields
+      if (province != null && province.isNotEmpty) profileData['province'] = province;
+      if (district != null && district.isNotEmpty) profileData['district'] = district;
+      if (sector != null && sector.isNotEmpty) profileData['sector'] = sector;
+      if (cell != null && cell.isNotEmpty) profileData['cell'] = cell;
+      if (village != null && village.isNotEmpty) profileData['village'] = village;
+      if (idNumber != null && idNumber.isNotEmpty) profileData['id_number'] = idNumber;
+
+      print('🔧 AuthProvider: Profile data to send: $profileData');
+
+      final response = await _authService.updateProfile(profileData);
+      print('🔧 AuthProvider: Service response: $response');
+      
+      // Update local user data
+      if (response['data'] != null) {
+        try {
+          final userData = response['data']['user'] ?? response['data'];
+          print('🔧 AuthProvider: User data from response: $userData');
+          
+          // Get account name from default account in response
+          final accountData = response['data']['account'];
+          if (accountData != null && accountData['name'] != null) {
+            userData['accountName'] = accountData['name'];
+            print('🔧 AuthProvider: Updated accountName from API: ${accountData['name']}');
+          } else if (currentUser != null) {
+            // Fallback to current user's account name if not in response
+            userData['accountName'] = currentUser.accountName;
+            print('🔧 AuthProvider: Preserved accountName: ${currentUser.accountName}');
+          }
+          
+          print('🔧 AuthProvider: About to call User.fromJson with data: $userData');
+          User updatedUser = User.fromJson(userData);
+          print('🔧 AuthProvider: Successfully created updated user: ${updatedUser.name}');
+          
+          // Validate the user object
+          if (updatedUser.name.isEmpty) {
+            print('🔧 AuthProvider: Warning - User name is empty, using fallback');
+            // Create a fallback user with required fields
+            final fallbackUser = updatedUser.copyWith(
+              name: currentUser?.name ?? 'User',
+              email: updatedUser.email ?? currentUser?.email ?? '',
+              phoneNumber: updatedUser.phoneNumber ?? currentUser?.phoneNumber ?? '',
+              accountName: updatedUser.accountName ?? currentUser?.accountName ?? '',
+            );
+            print('🔧 AuthProvider: Using fallback user: ${fallbackUser.name}');
+            updatedUser = fallbackUser;
+          }
+          print('🔧 AuthProvider: Updated user details - email: ${updatedUser.email}, phone: ${updatedUser.phoneNumber}, accountName: ${updatedUser.accountName}');
+          
+          // Update the state with error handling
+          try {
+            print('🔧 AuthProvider: About to update state with user: ${updatedUser.name}');
+            state = AsyncValue.data(updatedUser);
+            print('🔧 AuthProvider: State updated successfully');
+            
+            // Add a small delay to ensure state propagation
+            await Future.delayed(const Duration(milliseconds: 50));
+            print('🔧 AuthProvider: State propagation delay completed');
+          } catch (e) {
+            print('🔧 AuthProvider: Error updating state: $e');
+            // Keep the current state if update fails
+            print('🔧 AuthProvider: Keeping current state');
+          }
+        } catch (e, stackTrace) {
+          print('🔧 AuthProvider: Error parsing user data: $e');
+          print('🔧 AuthProvider: Stack trace: $stackTrace');
+          // If parsing fails, keep the current user and don't change state
+          print('🔧 AuthProvider: Keeping current user: ${currentUser?.name}');
+          // Don't update state - keep the current user data
+        }
       } else {
-        throw Exception(response.data['message'] ?? 'Profile update failed');
+        print('🔧 AuthProvider: No data in response, keeping current user');
       }
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+      
+      print('🔧 AuthProvider: Profile update completed successfully');
+    } catch (e) {
+      print('🔧 AuthProvider: Error updating profile: $e');
+      // Don't change state to error - just rethrow the exception
+      // This keeps the UI in the data state and lets the calling code handle the error
       rethrow;
     }
   }
 
   Future<void> deleteAccount() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(AppConfig.userFullDataKey);
-      await prefs.setBool(AppConfig.isLoggedInKey, false);
+      await SecureStorageService.clearAllCachedData();
       state = const AsyncValue.data(null);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
     }
   }
 
   Future<void> clearAllData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      await SecureStorageService.clearAllCachedData();
       state = const AsyncValue.data(null);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
     }
   }
 
   Future<bool> isUserLoggedIn() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final isLoggedIn = prefs.getBool(AppConfig.isLoggedInKey) ?? false;
-      return isLoggedIn;
+      return SecureStorageService.getLoginState();
     } catch (e) {
       return false;
     }
@@ -281,24 +339,47 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
 
   Future<bool> verifyToken() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(AppConfig.authTokenKey);
+      final token = SecureStorageService.getAuthToken();
       if (token == null || token.isEmpty) return false;
-      final dio = AppConfig.dioInstance();
-      final response = await dio.post(
-        '${AppConfig.authEndpoint}/verify_token',
-        data: {'token': token},
-      );
-      if (response.statusCode == 200 && response.data != null) {
-        // You can check for a specific field in response.data if needed
-        return true;
+      
+      // Try to get profile to verify token is still valid
+      await _authService.getProfile();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<void> refreshProfile() async {
+    try {
+      // Force refresh from API, ignore cache
+      final profileResponse = await _authService.refreshProfile();
+      print('🔧 AuthProvider: Profile response: $profileResponse');
+      
+      if (profileResponse['data'] != null && profileResponse['data']['user'] != null) {
+        final userData = profileResponse['data']['user'];
+        print('🔧 AuthProvider: User data from API: $userData');
+        
+        // Get account data from response if available
+        final accountData = profileResponse['data']['account'];
+        if (accountData != null) {
+          userData['accountName'] = accountData['name']?.toString() ?? '';
+          userData['accountCode'] = accountData['code']?.toString() ?? '';
+          print('🔧 AuthProvider: Account data from API: ${accountData['name']}');
+        }
+        
+        final updatedUser = User.fromJson(userData);
+        print('🔧 AuthProvider: Parsed user: ${updatedUser.name} - ${updatedUser.phoneNumber} - ${updatedUser.email} - ${updatedUser.accountName}');
+        
+        // Force state update to trigger UI rebuild
+        state = AsyncValue.data(updatedUser);
+        print('✅ Profile refreshed successfully: ${updatedUser.name} with account: ${updatedUser.accountName}');
       } else {
-        return false;
+        print('❌ AuthProvider: No user data in profile response');
       }
-    } on DioException catch (_) {
-      return false;
-    } catch (_) {
-      return false;
+    } catch (e) {
+      // If refresh fails, keep current user data but log the error
+      print('❌ Failed to refresh profile: $e');
     }
   }
 } 

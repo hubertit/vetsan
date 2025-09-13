@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:country_picker/country_picker.dart';
 import '../../core/theme/app_theme.dart';
+import '../utils/phone_validator.dart';
+import '../utils/rwandan_phone_input_formatter.dart';
 
 class PhoneInputField extends StatefulWidget {
   final TextEditingController controller;
@@ -48,9 +51,9 @@ class PhoneInputFieldState extends State<PhoneInputField> {
             onTap: widget.enabled ? _showCountryPicker : null,
             borderRadius: BorderRadius.circular(AppTheme.borderRadius8),
             child: Container(
+              height: 56, // Match TextFormField height
               padding: const EdgeInsets.symmetric(
                 horizontal: AppTheme.spacing12,
-                vertical: AppTheme.spacing12,
               ),
               decoration: BoxDecoration(
                 color: AppTheme.surfaceColor,
@@ -62,6 +65,8 @@ class PhoneInputFieldState extends State<PhoneInputField> {
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
                     _selectedCountry.flagEmoji,
@@ -91,12 +96,16 @@ class PhoneInputFieldState extends State<PhoneInputField> {
               textInputAction: widget.textInputAction,
               enabled: widget.enabled,
               onTap: widget.onTap,
+              inputFormatters: [
+                PhoneInputFormatter(),
+              ],
               decoration: InputDecoration(
                 labelText: widget.labelText ?? 'Phone Number',
                 prefixIcon: const Icon(Icons.phone_outlined),
-                hintText: 'Enter phone number',
+                hintText: '788606765',
+                hintStyle: AppTheme.bodySmall.copyWith(color: AppTheme.textHintColor),
               ),
-              validator: widget.validator,
+              validator: widget.validator ?? PhoneValidator.validateInternationalPhone,
             ),
           ),
         ],
@@ -129,6 +138,7 @@ class PhoneInputFieldState extends State<PhoneInputField> {
         ),
         searchTextStyle: Theme.of(context).textTheme.bodyMedium!,
       ),
+      // Allow all countries
       onSelect: (Country country) {
         setState(() {
           _selectedCountry = country;

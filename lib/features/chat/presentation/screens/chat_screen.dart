@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:contacts_service/contacts_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/services/attachment_handler_service.dart';
 
 import '../providers/chat_provider.dart';
 import '../../domain/models/chat_message.dart';
@@ -119,141 +122,83 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final messages = ref.watch(chatMessagesProvider(widget.chatRoom.id));
 
-    return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      appBar: AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppTheme.primaryColor.withOpacity(0.08),
-              child: widget.chatRoom.groupAvatar != null
-                  ? ClipOval(
-                      child: Image.asset(
-                        widget.chatRoom.groupAvatar!,
-                        width: 36,
-                        height: 36,
-                        fit: BoxFit.cover,
+    return GestureDetector(
+      onTap: () {
+        // Dismiss keyboard when tapping outside the text field
+        FocusScope.of(context).unfocus();
+      },
+      child: Scaffold(
+        backgroundColor: AppTheme.backgroundColor,
+        appBar: AppBar(
+          title: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: AppTheme.primaryColor.withOpacity(0.08),
+                child: widget.chatRoom.groupAvatar != null
+                    ? ClipOval(
+                        child: Image.asset(
+                          widget.chatRoom.groupAvatar!,
+                          width: 36,
+                          height: 36,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : Text(
+                        widget.chatRoom.name.substring(0, 1).toUpperCase(),
+                        style: AppTheme.bodySmall.copyWith(
+                          color: AppTheme.primaryColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
                       ),
-                    )
-                  : Text(
-                      widget.chatRoom.name.substring(0, 1).toUpperCase(),
-                      style: AppTheme.bodySmall.copyWith(
-                        color: AppTheme.primaryColor,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: AppTheme.spacing8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.chatRoom.name,
-                    style: AppTheme.bodyMedium.copyWith(
-                      color: AppTheme.textPrimaryColor,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    '${widget.chatRoom.members.length} members',
-                    style: AppTheme.bodySmall.copyWith(
-                      color: AppTheme.textSecondaryColor,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
               ),
-            ),
-          ],
-        ),
-        backgroundColor: AppTheme.surfaceColor,
-        elevation: 0,
-        actions: const [],
-      ),
-      body: Container(
-        color: Colors.black.withOpacity(0.02),
-        child: Column(
-          children: [
-            // Wallet Info Card
-            Container(
-              margin: const EdgeInsets.all(AppTheme.spacing12),
-              padding: const EdgeInsets.all(AppTheme.spacing12),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceColor,
-                borderRadius: BorderRadius.circular(AppTheme.borderRadius8),
-                border: Border.all(color: AppTheme.thinBorderColor.withOpacity(0.3)),
-              ),
-              child: InkWell(
-                onTap: () => _navigateToWalletDetails(),
-                borderRadius: BorderRadius.circular(AppTheme.borderRadius8),
-                child: Row(
+              const SizedBox(width: AppTheme.spacing8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(AppTheme.spacing8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(AppTheme.borderRadius8),
+                    Text(
+                      widget.chatRoom.name,
+                      style: AppTheme.titleMedium.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimaryColor,
                       ),
-                      child: const Icon(
-                        Icons.account_balance_wallet_outlined,
-                        color: AppTheme.primaryColor,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: AppTheme.spacing12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.chatRoom.wallet.name,
-                            style: AppTheme.bodyMedium.copyWith(
-                              color: AppTheme.textPrimaryColor,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: AppTheme.spacing2),
-                          Text(
-                            'Balance: ${NumberFormat.currency(symbol: 'Frw ').format(widget.chatRoom.wallet.balance)}',
-                            style: AppTheme.bodySmall.copyWith(
-                              color: AppTheme.textSecondaryColor,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right,
-                      color: AppTheme.textSecondaryColor,
-                      size: 20,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-            ),
+            ],
+          ),
+          backgroundColor: AppTheme.surfaceColor,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: AppTheme.textPrimaryColor),
+        ),
+        body: Column(
+          children: [
 
             // Messages
             Expanded(
-              child: messages.isEmpty
-                  ? _buildEmptyState()
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing12),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        final message = messages[index];
-                        final isCurrentUser = message.senderId == 'USER-1';
-                        return _buildMessageBubble(message, isCurrentUser);
-                      },
-                    ),
+              child: GestureDetector(
+                onTap: () {
+                  // Dismiss keyboard when tapping on the message list
+                  FocusScope.of(context).unfocus();
+                },
+                child: messages.isEmpty
+                    ? _buildEmptyState()
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing12),
+                        itemCount: messages.length,
+                        itemBuilder: (context, index) {
+                          final message = messages[index];
+                          final isCurrentUser = message.senderId == 'USER-1'; // Assuming current user is USER-1
+                          return _buildMessageBubble(message, isCurrentUser);
+                        },
+                      ),
+              ),
             ),
 
             // Message Input
@@ -265,6 +210,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
               child: Row(
                 children: [
+                  // Attachment Button
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.attach_file,
+                        color: AppTheme.primaryColor,
+                        size: 20,
+                      ),
+                      onPressed: _showAttachmentOptions,
+                      padding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.spacing8),
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
@@ -329,14 +293,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  void _navigateToWalletDetails() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => WalletDetailsScreen(wallet: widget.chatRoom.wallet),
-      ),
-    );
-  }
 
   Widget _buildEmptyState() {
     return Center(
@@ -366,7 +322,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           const SizedBox(height: AppTheme.spacing4),
           Text(
-            'Send a message to start chatting with\nyour group members.',
+            'Send a message to start chatting.',
             textAlign: TextAlign.center,
             style: AppTheme.bodySmall.copyWith(
               color: AppTheme.textSecondaryColor,
@@ -433,7 +389,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 CustomPaint(
                   painter: ChatBubblePainter(
                     isFromCurrentUser: isCurrentUser,
-                    color: isCurrentUser ? AppTheme.primaryColor : AppTheme.surfaceColor,
+                    color: isCurrentUser ? AppTheme.sentMessageColor : AppTheme.surfaceColor,
                   ),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -449,7 +405,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Text(
                             message.content,
                             style: AppTheme.bodySmall.copyWith(
-                              color: isCurrentUser ? AppTheme.surfaceColor : AppTheme.textPrimaryColor,
+                              color: isCurrentUser ? AppTheme.textPrimaryColor : AppTheme.textPrimaryColor,
                               fontSize: 14,
                             ),
                           ),
@@ -461,7 +417,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               messageTime,
                               style: AppTheme.bodySmall.copyWith(
                                 color: isCurrentUser 
-                                    ? AppTheme.surfaceColor.withOpacity(0.7)
+                                    ? AppTheme.textSecondaryColor
                                     : AppTheme.textSecondaryColor,
                                 fontSize: 10,
                               ),
@@ -471,7 +427,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               Icon(
                                 _getStatusIcon(message.status),
                                 size: 12,
-                                color: AppTheme.surfaceColor.withOpacity(0.7),
+                                color: AppTheme.textSecondaryColor,
                               ),
                             ],
                           ],
@@ -543,5 +499,150 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case MessageStatus.failed:
         return Icons.error;
     }
+  }
+
+  void _showAttachmentOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(AppTheme.spacing20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.textSecondaryColor.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: AppTheme.spacing20),
+            
+            // Title
+            Text(
+              'Attach File',
+              style: AppTheme.titleMedium.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppTheme.spacing24),
+            
+            // Attachment options
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildAttachmentOption(
+                  icon: Icons.camera_alt,
+                  label: 'Camera',
+                  onTap: _openCamera,
+                ),
+                _buildAttachmentOption(
+                  icon: Icons.photo_library,
+                  label: 'Gallery',
+                  onTap: _openGallery,
+                ),
+                _buildAttachmentOption(
+                  icon: Icons.description,
+                  label: 'Document',
+                  onTap: _openDocument,
+                ),
+                _buildAttachmentOption(
+                  icon: Icons.contacts,
+                  label: 'Contacts',
+                  onTap: _shareContacts,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppTheme.spacing20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(AppTheme.borderRadius12),
+            ),
+            child: Icon(
+              icon,
+              color: AppTheme.primaryColor,
+              size: 28,
+            ),
+          ),
+          const SizedBox(height: AppTheme.spacing8),
+          Text(
+            label,
+            style: AppTheme.bodySmall.copyWith(
+              color: AppTheme.textSecondaryColor,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openCamera() async {
+    Navigator.pop(context);
+    final files = await AttachmentHandlerService.handleCamera(context);
+    if (files != null) {
+      _handleAttachments('image', files);
+    }
+  }
+
+  Future<void> _openGallery() async {
+    Navigator.pop(context);
+    final files = await AttachmentHandlerService.handleGallery(context);
+    if (files != null) {
+      _handleAttachments('image', files);
+    }
+  }
+
+  Future<void> _openDocument() async {
+    Navigator.pop(context);
+    final files = await AttachmentHandlerService.handleDocument(context);
+    if (files != null) {
+      _handleAttachments('document', files);
+    }
+  }
+
+  Future<void> _shareContacts() async {
+    Navigator.pop(context);
+    final contacts = await AttachmentHandlerService.handleContacts(context);
+    if (contacts != null) {
+      _handleContactAttachments(contacts);
+    }
+  }
+
+  void _handleAttachments(String type, List<File> files) {
+    // TODO: Implement attachment handling for group chat
+    // This would add the attachments to the group chat
+    // print('Handling $type attachments: ${files.length} files');
+  }
+
+  void _handleContactAttachments(List<Contact> contacts) {
+    // TODO: Implement contact handling for group chat
+    // This would add the contacts to the group chat
+    // print('Handling contacts: ${contacts.length} contacts');
   }
 } 

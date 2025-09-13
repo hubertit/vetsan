@@ -5,6 +5,7 @@ class AppTheme {
   static const Color primaryColor = Color(0xFF004643); // Deep teal green
   static const Color backgroundColor = Color(0xFFF8F9FA);
   static const Color surfaceColor = Colors.white;
+  static const Color sentMessageColor = Color(0xFFE8F5E8); // Light green for sent messages
   static const Color errorColor = Color(0xFFE53935);
   static const Color successColor = Color(0xFF4CAF50); // Bright green for success
   static const Color warningColor = Color(0xFFFFA000);
@@ -22,6 +23,10 @@ class AppTheme {
   static const Color snackbarWarningColor = Color(0xFFFFA000);
   static const Color snackbarInfoColor = Color(0xFF2196F3);
   static const Color snackbarNeutralColor = Color(0xFF424242);
+  
+  // Additional Colors
+  static const Color infoColor = Color(0xFF2196F3);
+  static const Color borderColor = Color(0xFFE0E0E0);
 
   // Spacing
   static const double spacing2 = 2.0;
@@ -44,6 +49,9 @@ class AppTheme {
   static const double borderRadius12 = 12.0;
   static const double borderRadius16 = 16.0;
   static const double borderRadius24 = 24.0;
+  static const double borderRadiusSmall = 8.0;
+  static const double borderRadiusMedium = 12.0;
+  static const double borderRadiusLarge = 16.0;
 
   // Text Styles (using Inter font)
   static const TextStyle headlineLarge = TextStyle(
@@ -52,15 +60,33 @@ class AppTheme {
     fontWeight: FontWeight.w700,
     color: textPrimaryColor,
   );
+  static const TextStyle titleLarge = TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 22,
+    fontWeight: FontWeight.w600,
+    color: textPrimaryColor,
+  );
   static const TextStyle bodyMedium = TextStyle(
     fontFamily: 'Inter',
     fontSize: 16,
     fontWeight: FontWeight.w400,
     color: textPrimaryColor,
   );
+  static const TextStyle bodyLarge = TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 18,
+    fontWeight: FontWeight.w400,
+    color: textPrimaryColor,
+  );
   static const TextStyle titleMedium = TextStyle(
     fontFamily: 'Inter',
     fontSize: 18,
+    fontWeight: FontWeight.w600,
+    color: textPrimaryColor,
+  );
+  static const TextStyle titleSmall = TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 14,
     fontWeight: FontWeight.w600,
     color: textPrimaryColor,
   );
@@ -244,9 +270,7 @@ class AppTheme {
       secondary: primaryColor,
       error: errorColor,
       surface: Colors.white,
-      background: backgroundColor,
       onSurface: textPrimaryColor,
-      onBackground: textPrimaryColor,
       // No blue/pink
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -317,7 +341,7 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         color: textPrimaryColor,
       ),
-      surfaceTintColor: Colors.white,
+      surfaceTintColor: primaryColor,
     ),
   );
 } 
